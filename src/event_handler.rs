@@ -44,6 +44,10 @@ pub struct Handler {
     app_config: AppConfig,
     /// 登録したコマンドのID
     move_command_id: Arc<Mutex<Option<Commands>>>,
+    /// ユーザーメンションの正規表現
+    user_mention_regex: Regex,
+    /// チャンネルメンションの正規表現
+    channel_mention_regex: Regex,
 }
 
 // コマンドの種類
@@ -57,13 +61,12 @@ impl CommandType {
     fn to_string(&self) -> String {
         match self {
             CommandType::Move(channel_name) => format!("新規VC「{}」", channel_name),
-            CommandType::MoveTo(channel_id) => channel_id.mention().to_string(),
+            CommandType::MoveTo(channel_id) => format!("「{}」", channel_id.mention().to_string()),
         }
     }
 
     /// 文字列から変換
-    fn parse(content: &str) -> Result<Self> {
-        let re = Regex::new(r"(?:\n<#(\d+)>)|(?:「(.+)」)").unwrap();
+    fn parse(re: &Regex, content: &str) -> Result<Self> {
         let caps = re.captures(content).context("移動先VCの取得に失敗")?;
         let mention_channel_id = caps
             .get(1)
@@ -84,9 +87,15 @@ impl CommandType {
 impl Handler {
     /// コンストラクタ
     pub fn new(app_config: AppConfig) -> Result<Self> {
+        let user_mention_regex =
+            Regex::new(r"「<@(\d+)>」").context("ユーザーメンションの正規表現の構築に失敗")?;
+        let channel_mention_regex = Regex::new(r"(?:「<#(\d+)>」)|(?:新規VC「(.+)」)")
+            .context("チャンネルメンションの正規表現のコンパイルに失敗")?;
         Ok(Self {
             app_config,
             move_command_id: Arc::new(Mutex::new(None)),
+            user_mention_regex,
+            channel_mention_regex,
         })
     }
 
@@ -213,7 +222,7 @@ impl Handler {
             .channel_id
             .send_message(&ctx, |m| {
                 m.content(format!(
-                    "{}にいる皆さん({})へ\n\n{}が一緒に移動する人の募集を開始しました。\n{}に移動したい人は{}分以内にリアクション押してください！",
+                    "{}にいる皆さん({})へ\n\n「{}」が一緒に移動する人の募集を開始しました。\n{}に移動したい人は{}分以内にリアクション押してください！",
                     voice_channel_id.mention(),
                     voice_member_mentions,
                     interaction.user.mention(),
@@ -289,8 +298,8 @@ impl Handler {
         let user_id = reaction.user_id.context("ユーザーIDの取得に失敗")?;
 
         // メッセージのメンションユーザーを取得
-        let re = Regex::new(r"\n<@(\d+)>").unwrap();
-        let caps = re
+        let caps = self
+            .user_mention_regex
             .captures(&message.content)
             .context("送信者のID取得に失敗")?;
         let mention_user = caps
@@ -304,7 +313,7 @@ impl Handler {
         }
 
         // メッセージのメンションチャンネルを取得
-        let mention_channel_id = CommandType::parse(&message.content)?;
+        let mention_channel_id = CommandType::parse(&self.channel_mention_regex, &message.content)?;
 
         // リアクションを追加した人がボイスチャンネルにいるか確認
         let guild_id = reaction.guild_id.context("サーバーの取得に失敗")?;
