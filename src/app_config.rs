@@ -6,6 +6,8 @@ use serenity::model::prelude::ChannelId;
 pub struct DiscordConfig {
     /// 投票の制限時間
     pub move_timeout_minutes: u64,
+    /// 最初の1人が移動してから他の人が移動するまでの時間
+    pub move_wait_seconds: u64,
     /// VC作成チャンネル
     pub vc_create_channel: ChannelId,
     /// Botが動作するカテゴリID

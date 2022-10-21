@@ -3,6 +3,7 @@ use std::{str::FromStr, sync::Arc};
 use crate::app_config::AppConfig;
 use anyhow::{anyhow, Context as _, Result};
 
+use futures::future::try_join_all;
 use log::{error, warn};
 use regex::Regex;
 use serenity::{
@@ -18,7 +19,7 @@ use serenity::{
                 application_command::{ApplicationCommandInteraction, CommandDataOption},
                 InteractionResponseType,
             },
-            Channel, ChannelType, CommandId, Reaction, UserId,
+            ChannelType, CommandId, Reaction, UserId,
         },
         user::User,
     },
@@ -328,7 +329,10 @@ impl Handler {
                     .context("移動に失敗")?;
 
                 // すこし待つ
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(
+                    self.app_config.discord.move_wait_seconds,
+                ))
+                .await;
 
                 // VCの状態が変わっているため、ギルドを再取得
                 let guild = guild_id
@@ -378,34 +382,20 @@ impl Handler {
         };
 
         // リアクションをした人全員をボイスチャンネルに移動
-        for user in &reaction_users {
-            // 通話状態を取得
-            let voice_state = match guild.voice_states.get(&user.id) {
-                Some(voice_state) => voice_state,
-                None => continue,
-            };
+        let members = try_join_all(
+            reaction_users
+                .iter()
+                // 通話状態を取得
+                .filter_map(|user| guild.voice_states.get(&user.id))
+                // 通話中のチャンネルIDを取得し、同じチャンネルにいなければ無視
+                .filter(|voice_state| voice_state.channel_id != Some(to_channel_id))
+                // メンバーを取得
+                .map(|voice_state| guild.member(&ctx, voice_state.user_id)),
+        )
+        .await?;
 
-            // 通話中のチャンネルIDを取得
-            let channel_id = match voice_state.channel_id {
-                Some(channel_id) => channel_id,
-                None => continue,
-            };
-
-            // 同じチャンネルにいなければ無視
-            if channel_id != voice_channel_id {
-                continue;
-            }
-
-            // メンバーを取得
-            let member = match guild
-                .member(&ctx, user.id)
-                .await
-                .context("メンバーの取得に失敗")
-            {
-                Ok(member) => member,
-                Err(_) => continue,
-            };
-
+        // メンバーを移動
+        for member in &members {
             // リアクションを追加した人がボイスチャンネルにいる場合は移動
             let _ = member.move_to_voice_channel(&ctx, to_channel_id).await;
         }
@@ -422,15 +412,15 @@ impl Handler {
                 message.content(format!(
                     "{}と一緒に{}人のメンバーを{}へ移動しました。",
                     mention_user.mention(),
-                    reaction_users.len() - 1,
+                    members.len() - 1,
                     to_channel_id.mention(),
                 ));
                 message.embed(|embed| {
                     embed.title("移動したメンバー");
                     embed.description(
-                        reaction_users
+                        members
                             .iter()
-                            .map(|user| user.mention().to_string())
+                            .map(|member| member.mention().to_string())
                             .collect::<Vec<String>>()
                             .join("\n"),
                     );
