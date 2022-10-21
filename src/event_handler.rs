@@ -193,17 +193,29 @@ impl Handler {
             .ok_or_else(|| anyhow!("サーバーの取得に失敗しました"))?;
 
         // 送信者がボイスチャンネルにいるか確認
-        guild
+        let voice_channel_id = guild
             .voice_states
             .get(&member.user.id)
+            .and_then(|voice_state| voice_state.channel_id)
             .ok_or_else(|| anyhow!("ボイスチャンネルに参加していません"))?;
+
+        // VCのメンバーを取得
+        let voice_member_mentions = guild
+            .voice_states
+            .iter()
+            .filter(|(_, state)| state.channel_id == Some(voice_channel_id))
+            .map(|(id, _)| id.mention().to_string())
+            .collect::<Vec<String>>()
+            .join("");
 
         // メッセージを送信
         let message = interaction
             .channel_id
             .send_message(&ctx, |m| {
                 m.content(format!(
-                    "{}が一緒に移動する人の募集を開始しました。\n{}に移動したい人は{}分以内にリアクション押してください！",
+                    "{}にいる皆さん({})へ\n\n{}が一緒に移動する人の募集を開始しました。\n{}に移動したい人は{}分以内にリアクション押してください！",
+                    voice_channel_id.mention(),
+                    voice_member_mentions,
                     interaction.user.mention(),
                     command_type.to_string(),
                     self.app_config.discord.move_timeout_minutes,
