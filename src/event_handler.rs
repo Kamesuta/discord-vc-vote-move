@@ -63,7 +63,7 @@ impl CommandType {
 
     /// 文字列から変換
     fn parse(content: &str) -> Result<Self> {
-        let re = Regex::new(r"(?:<#(\d+)>)|(?:「(.+)」)").unwrap();
+        let re = Regex::new(r"(?:\n<#(\d+)>)|(?:「(.+)」)").unwrap();
         let caps = re.captures(content).context("移動先VCの取得に失敗")?;
         let mention_channel_id = caps
             .get(1)
@@ -289,13 +289,17 @@ impl Handler {
         let user_id = reaction.user_id.context("ユーザーIDの取得に失敗")?;
 
         // メッセージのメンションユーザーを取得
-        let mention_user: &User = message
-            .mentions
-            .first()
-            .context("ユーザーメンションの取得に失敗")?;
+        let re = Regex::new(r"\n<@(\d+)>").unwrap();
+        let caps = re
+            .captures(&message.content)
+            .context("送信者のID取得に失敗")?;
+        let mention_user = caps
+            .get(1)
+            .and_then(|m| UserId::from_str(m.as_str()).ok())
+            .context("送信者のメンション取得に失敗")?;
 
         // リアクションを追加した人がメンションされた人でなければ無視
-        if mention_user.id != user_id {
+        if mention_user != user_id {
             return Ok(());
         }
 
