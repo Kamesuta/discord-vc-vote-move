@@ -299,7 +299,7 @@ impl Handler {
             .voice_states
             .get(&user_id)
             .context("ボイスチャンネルに参加していません")?;
-        let voice_channel_id = voice_state
+        let _voice_channel_id = voice_state
             .channel_id
             .context("ボイスチャンネルのIDの取得に失敗")?;
 
@@ -387,8 +387,6 @@ impl Handler {
                 .iter()
                 // 通話状態を取得
                 .filter_map(|user| guild.voice_states.get(&user.id))
-                // 通話中のチャンネルIDを取得し、同じチャンネルにいなければ無視
-                .filter(|voice_state| voice_state.channel_id != Some(to_channel_id))
                 // メンバーを取得
                 .map(|voice_state| guild.member(&ctx, voice_state.user_id)),
         )
