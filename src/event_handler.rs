@@ -93,10 +93,12 @@ impl Handler {
             .channel_id
             .send_message(&ctx, |m| {
                 m.content(format!(
-                    "{}が一緒に移動する人の募集を開始しました。\n{}に移動したい人はリアクション押してください！",
+                    "{}が一緒に移動する人の募集を開始しました。\n{}に移動したい人は{}分以内にリアクション押してください！",
                     interaction.user.mention(),
-                   channel.mention()
-                ))
+                    channel.mention(),
+                    self.app_config.discord.move_timeout_minutes,
+                ));
+                m
             })
             .await
             .map_err(|_why| anyhow!("メッセージの投稿に失敗しました"))?;
@@ -105,6 +107,22 @@ impl Handler {
             .react(&ctx, '🤚')
             .await
             .map_err(|_why| anyhow!("リアクションの追加に失敗しました"))?;
+
+        // 一定時間後にメッセージを削除
+        let minutes = self.app_config.discord.move_timeout_minutes;
+        let ctx_clone = ctx.clone();
+        tokio::task::spawn(async move {
+            // minutes分後に削除
+            tokio::time::sleep(std::time::Duration::from_secs(60 * minutes)).await;
+
+            // メッセージを削除
+            match message.delete(ctx_clone).await {
+                Ok(_) => {}
+                Err(why) => {
+                    error!("メッセージの削除に失敗しました: {}", why);
+                }
+            }
+        });
 
         // 返信をする
         interaction
@@ -185,8 +203,12 @@ impl Handler {
         let reaction_users = reaction
             .users(&ctx, '🤚', None, None::<UserId>)
             .await
-            .context("リアクションを追加したユーザーの取得に失敗")?;
+            .context("リアクションを追加したユーザーの取得に失敗")?
+            .into_iter()
+            .filter(|user| user.id != ctx.cache.current_user_id())
+            .collect::<Vec<User>>();
 
+        // リアクションをした人全員をボイスチャンネルに移動
         for user in &reaction_users {
             // 通話状態を取得
             let voice_state = match guild.voice_states.get(&user.id) {
@@ -206,26 +228,32 @@ impl Handler {
             }
 
             // メンバーを取得
-            let member = voice_state
-                .member
-                .as_ref()
-                .context("メンバーの取得に失敗")?;
+            let member = match guild
+                .member(&ctx, user.id)
+                .await
+                .context("メンバーの取得に失敗")
+            {
+                Ok(member) => member,
+                Err(_) => continue,
+            };
 
             // リアクションを追加した人がボイスチャンネルにいる場合は移動
             let _ = member.move_to_voice_channel(&ctx, mention_channel_id).await;
         }
 
+        // 募集のメッセージを削除
         message
             .delete(&ctx)
             .await
             .context("メッセージの削除に失敗")?;
+        // 結果を送信
         reaction
             .channel_id
             .say(
                 &ctx,
                 format!(
                     "{}人のメンバーを{}へ移動しました。",
-                    reaction_users.len() - 1,
+                    reaction_users.len(),
                     mention_channel_id.mention()
                 ),
             )

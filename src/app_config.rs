@@ -2,7 +2,10 @@ use anyhow::{Context as _, Result};
 use config::Config;
 
 #[derive(Debug, Default, serde::Deserialize, PartialEq, Clone)]
-pub struct DiscordConfig {}
+pub struct DiscordConfig {
+    /// 投票の制限時間
+    pub move_timeout_minutes: u64,
+}
 
 /// アプリケーションの設定
 #[derive(Debug, Default, serde::Deserialize, PartialEq, Clone)]
