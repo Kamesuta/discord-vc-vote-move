@@ -159,9 +159,9 @@ impl Handler {
             .clone();
 
         // データを取得
-        let global: &CommandDataOption = &interaction.data.options[0];
+        let data_option: &CommandDataOption = &interaction.data.options[0];
         // 指定されたチャンネルIDを取得
-        let channel_str: &str = match global.value.as_ref() {
+        let channel_str: &str = match data_option.value.as_ref() {
             Some(Value::String(channel)) => channel.as_str(),
             _ => return Err(anyhow!("チャンネルが指定されていません")),
         };
@@ -180,6 +180,22 @@ impl Handler {
                 // チャンネルIDを取得
                 let channel_id = ChannelId::from_str(channel_str)
                     .map_err(|_why| anyhow!("チャンネルが取得できません"))?;
+
+                // 権限を確認
+                let channel = channel_id
+                    .to_channel(&ctx)
+                    .await
+                    .context("チャンネルが取得できません")?
+                    .guild()
+                    .context("DMチャンネルは取得できません")?;
+                if !channel
+                    .permissions_for_user(&ctx, interaction.user.id)
+                    .context("権限の取得に失敗")?
+                    .connect()
+                {
+                    return Err(anyhow!("指定されたVCに入る権限がありません"));
+                }
+
                 // コマンドの種類を取得
                 CommandType::MoveTo(channel_id)
             }
@@ -339,7 +355,24 @@ impl Handler {
 
         // 移動先チャンネルを取得/作成
         let to_channel_id = match mention_channel_id {
-            CommandType::MoveTo(channel_id) => channel_id,
+            CommandType::MoveTo(channel_id) => {
+                // 権限を確認
+                let channel = channel_id
+                    .to_channel(&ctx)
+                    .await
+                    .context("チャンネルが取得できません")?
+                    .guild()
+                    .context("DMチャンネルは取得できません")?;
+                if !channel
+                    .permissions_for_user(&ctx, user_id)
+                    .context("権限の取得に失敗")?
+                    .connect()
+                {
+                    return Err(anyhow!("指定されたVCに入る権限がありません"));
+                }
+
+                channel_id
+            }
             CommandType::Move(channel_name) => {
                 // メンバーを取得
                 let member = guild
