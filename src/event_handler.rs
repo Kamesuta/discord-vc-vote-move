@@ -249,14 +249,26 @@ impl Handler {
         // 結果を送信
         reaction
             .channel_id
-            .say(
-                &ctx,
-                format!(
-                    "{}人のメンバーを{}へ移動しました。",
-                    reaction_users.len(),
+            .send_message(&ctx, |message| {
+                message.content(format!(
+                    "{}と一緒に{}人のメンバーを{}へ移動しました。",
+                    mention_user.mention(),
+                    reaction_users.len() - 1,
                     mention_channel_id.mention()
-                ),
-            )
+                ));
+                message.embed(|embed| {
+                    embed.title("移動したメンバー");
+                    embed.description(
+                        reaction_users
+                            .iter()
+                            .map(|user| user.mention().to_string())
+                            .collect::<Vec<String>>()
+                            .join("\n"),
+                    );
+                    embed
+                });
+                message
+            })
             .await
             .context("メッセージの送信に失敗")?;
 
