@@ -1,2 +1,5 @@
 [discord]
 move_timeout_minutes = 10
+vc_create_channel = "000000000000000000"
+vc_category = "000000000000000000"
+vc_ignored_channels = ["000000000000000000"]

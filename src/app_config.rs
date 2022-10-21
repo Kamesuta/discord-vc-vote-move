@@ -1,10 +1,17 @@
 use anyhow::{Context as _, Result};
 use config::Config;
+use serenity::model::prelude::ChannelId;
 
 #[derive(Debug, Default, serde::Deserialize, PartialEq, Clone)]
 pub struct DiscordConfig {
     /// 投票の制限時間
     pub move_timeout_minutes: u64,
+    /// VC作成チャンネル
+    pub vc_create_channel: ChannelId,
+    /// Botが動作するカテゴリID
+    pub vc_category: ChannelId,
+    /// 無視するチャンネルID
+    pub vc_ignored_channels: Vec<ChannelId>,
 }
 
 /// アプリケーションの設定
