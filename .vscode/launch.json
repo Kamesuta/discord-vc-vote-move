@@ -1,0 +1,19 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // lldbが現在クラッシュするので代わりにcppvsdbgを使う
+            "type": "cppvsdbg",
+            "request": "launch",
+            "name": "Debug executable 'discord-vc-vote-move'",
+            "program": "${workspaceFolder}/target/debug/discord-vc-vote-move",
+            "preLaunchTask": "cargo build",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+        }
+    ]
+}

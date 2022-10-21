@@ -1,0 +1,28 @@
+[package]
+edition = "2021"
+name = "discord-vc-vote-move"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.65"
+chrono = "0.4.22"
+chrono-tz = "0.7.0"
+config = "0.13.2"
+futures = "0.3.25"
+log = "0.4.17"
+log4rs = "1.2.0"
+regex = "1.5.6"
+serde = "1.0.145"
+serde_json = "1.0.87"
+serenity = { version = "0.11.5", default-features = false, features = [
+  "cache",
+  "chrono",
+  "client",
+  "gateway",
+  "model",
+  "http",
+  "rustls_backend",
+] }
+tokio = { version = "1.21.2", features = ["rt-multi-thread"] }
