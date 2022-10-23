@@ -1,4 +1,8 @@
-use std::{str::FromStr, sync::Arc};
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+    sync::Arc,
+};
 
 use crate::app_config::AppConfig;
 use anyhow::{anyhow, Context as _, Result};
@@ -44,15 +48,17 @@ enum CommandType {
     MoveTo(ChannelId),
 }
 
-impl CommandType {
+impl Display for CommandType {
     /// 文字列に変換
-    fn to_string(&self) -> String {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            CommandType::Move(channel_name) => format!("新規VC「{}」", channel_name),
-            CommandType::MoveTo(channel_id) => format!("{}", channel_id.mention().to_string()),
+            CommandType::Move(channel_name) => write!(f, "新規VC「{channel_name}」"),
+            CommandType::MoveTo(channel_id) => write!(f, "{}", channel_id.mention().to_string()),
         }
     }
+}
 
+impl CommandType {
     /// 文字列から変換
     fn parse(move_to_match: Option<Match>, move_match: Option<Match>) -> Option<Self> {
         move_to_match
@@ -85,7 +91,7 @@ impl Handler {
             regex::escape(&vote_message.replace("{}", "%s")).replace("%s", "{}");
         let vote_message_with_regex =
             vote_message_escape.format(&[r"<@(\d+)>", r"(?:<#(\d+)>|新規VC「(.+)」)", r"(?:\d+)"]);
-        let vote_message_regex = Regex::new(&format!("{}$", vote_message_with_regex))
+        let vote_message_regex = Regex::new(&format!("{vote_message_with_regex}$"))
             .context("募集メッセージの正規表現のコンパイルに失敗")?;
         Ok(Self {
             app_config,
@@ -178,7 +184,7 @@ impl Handler {
             .get(1)
             .and_then(|option| option.value.as_ref())
         {
-            Some(Value::String(message)) => format!("\n\n{}", message.as_str()),
+            Some(Value::String(message)) => format!("\n\n{message}"),
             _ => "".to_string(),
         };
 
@@ -261,11 +267,8 @@ impl Handler {
                 ]);
                 // メッセージを設定
                 m.content(format!(
-                    "{}にいる皆さん({})へ{}\n\n{}",
+                    "{}にいる皆さん({voice_member_mentions})へ{message}\n\n{vote_message}",
                     voice_channel_id.mention(),
-                    voice_member_mentions,
-                    message,
-                    vote_message,
                 ));
                 // メンション可能ロールのみに設定 (@everyone/@hereは禁止)
                 m.allowed_mentions(|a| {
@@ -312,7 +315,7 @@ impl Handler {
                     .kind(InteractionResponseType::ChannelMessageWithSource)
                     .interaction_response_data(|message| {
                         message.ephemeral(true);
-                        message.content(format!("一緒に移動する人の募集を開始しました。\nあなたが🤚をつけると、🤚つけた人と一緒に{}へ移動します。", command_type.to_string()));
+                        message.content(format!("一緒に移動する人の募集を開始しました。\nあなたが🤚をつけると、🤚つけた人と一緒に{command_type}へ移動します。"));
                         message
                     })
             })
