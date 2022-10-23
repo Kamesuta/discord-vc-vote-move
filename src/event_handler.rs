@@ -3,9 +3,10 @@ use std::{str::FromStr, sync::Arc};
 use crate::app_config::AppConfig;
 use anyhow::{anyhow, Context as _, Result};
 
+use dyn_fmt::AsStrFormatExt;
 use futures::future::try_join_all;
 use log::{error, warn};
-use regex::Regex;
+use regex::{Match, Regex};
 use serenity::{
     json::Value,
     model::{
@@ -26,7 +27,6 @@ use serenity::{
 };
 
 use serenity::async_trait;
-
 use serenity::prelude::*;
 
 #[derive(Clone, Debug)]
@@ -36,18 +36,6 @@ struct Commands {
     move_command: CommandId,
     /// すでに作成されている部屋に移動コマンド
     move_to_command: CommandId,
-}
-
-/// イベント受信リスナー
-pub struct Handler {
-    /// 設定
-    app_config: AppConfig,
-    /// 登録したコマンドのID
-    move_command_id: Arc<Mutex<Option<Commands>>>,
-    /// ユーザーメンションの正規表現
-    user_mention_regex: Regex,
-    /// チャンネルメンションの正規表現
-    channel_mention_regex: Regex,
 }
 
 // コマンドの種類
@@ -61,41 +49,49 @@ impl CommandType {
     fn to_string(&self) -> String {
         match self {
             CommandType::Move(channel_name) => format!("新規VC「{}」", channel_name),
-            CommandType::MoveTo(channel_id) => format!("「{}」", channel_id.mention().to_string()),
+            CommandType::MoveTo(channel_id) => format!("{}", channel_id.mention().to_string()),
         }
     }
 
     /// 文字列から変換
-    fn parse(re: &Regex, content: &str) -> Result<Self> {
-        let caps = re.captures(content).context("移動先VCの取得に失敗")?;
-        let mention_channel_id = caps
-            .get(1)
+    fn parse(move_to_match: Option<Match>, move_match: Option<Match>) -> Option<Self> {
+        move_to_match
             .and_then(|m| {
                 ChannelId::from_str(m.as_str())
                     .ok()
                     .map(|channel_id| CommandType::MoveTo(channel_id))
             })
-            .or_else(|| {
-                caps.get(2)
-                    .and_then(|m| Some(CommandType::Move(m.as_str().to_string())))
-            })
-            .context("移動先VCのチャンネル取得に失敗")?;
-        Ok(mention_channel_id)
+            .or_else(|| move_match.and_then(|m| Some(CommandType::Move(m.as_str().to_string()))))
     }
+}
+
+/// イベント受信リスナー
+pub struct Handler {
+    /// 設定
+    app_config: AppConfig,
+    /// 登録したコマンドのID
+    move_command_id: Arc<Mutex<Option<Commands>>>,
+    /// 募集メッセージ
+    vote_message: String,
+    /// 募集メッセージの正規表現
+    vote_message_regex: Regex,
 }
 
 impl Handler {
     /// コンストラクタ
     pub fn new(app_config: AppConfig) -> Result<Self> {
-        let user_mention_regex =
-            Regex::new(r"「<@(\d+)>」").context("ユーザーメンションの正規表現の構築に失敗")?;
-        let channel_mention_regex = Regex::new(r"(?:「<#(\d+)>」)|(?:新規VC「(.+)」)")
-            .context("チャンネルメンションの正規表現のコンパイルに失敗")?;
+        let vote_message = "{}が一緒に移動する人の募集を開始しました。\n{}に移動したい人は{}分以内にリアクション押してください！";
+        let vote_message_escape =
+            regex::escape(&vote_message.replace("{}", "%s")).replace("%s", "{}");
+        let vote_message_with_regex =
+            vote_message_escape.format(&[r"<@(\d+)>", r"(?:<#(\d+)>|新規VC「(.+)」)", r"(?:\d+)"]);
+        let vote_message_regex = Regex::new(&format!("{}$", vote_message_with_regex))
+            .context("募集メッセージの正規表現のコンパイルに失敗")?;
         Ok(Self {
             app_config,
             move_command_id: Arc::new(Mutex::new(None)),
-            user_mention_regex,
-            channel_mention_regex,
+            vote_message: vote_message.to_string(),
+            vote_message_regex,
         })
     }
 
@@ -233,17 +229,22 @@ impl Handler {
             .collect::<Vec<String>>()
             .join("");
 
+        // メッセージを構築
+        let vote_message = self.vote_message.format(&[
+            &interaction.user.mention().to_string(),
+            &command_type.to_string(),
+            &self.app_config.discord.move_timeout_minutes.to_string(),
+        ]);
+
         // メッセージを送信
         let message = interaction
             .channel_id
             .send_message(&ctx, |m| {
                 m.content(format!(
-                    "{}にいる皆さん({})へ\n\n「{}」が一緒に移動する人の募集を開始しました。\n{}に移動したい人は{}分以内にリアクション押してください！",
+                    "{}にいる皆さん({})へ\n\n{}",
                     voice_channel_id.mention(),
                     voice_member_mentions,
-                    interaction.user.mention(),
-                    command_type.to_string(),
-                    self.app_config.discord.move_timeout_minutes,
+                    vote_message,
                 ));
                 m
             })
@@ -315,9 +316,9 @@ impl Handler {
 
         // メッセージのメンションユーザーを取得
         let caps = self
-            .user_mention_regex
+            .vote_message_regex
             .captures(&message.content)
-            .context("送信者のID取得に失敗")?;
+            .context("メッセージのパースに失敗")?;
         let mention_user = caps
             .get(1)
             .and_then(|m| UserId::from_str(m.as_str()).ok())
@@ -329,7 +330,8 @@ impl Handler {
         }
 
         // メッセージのメンションチャンネルを取得
-        let mention_channel_id = CommandType::parse(&self.channel_mention_regex, &message.content)?;
+        let mention_channel_id = CommandType::parse(caps.get(2), caps.get(3))
+            .context("移動先VCのチャンネル取得に失敗")?;
 
         // リアクションを追加した人がボイスチャンネルにいるか確認
         let guild_id = reaction.guild_id.context("サーバーの取得に失敗")?;
