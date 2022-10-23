@@ -8,6 +8,7 @@ use futures::future::try_join_all;
 use log::{error, warn};
 use regex::{Match, Regex};
 use serenity::{
+    builder::ParseValue,
     json::Value,
     model::{
         application::command::Command,
@@ -17,8 +18,7 @@ use serenity::{
         prelude::{
             command::CommandOptionType,
             interaction::{
-                application_command::{ApplicationCommandInteraction, CommandDataOption},
-                InteractionResponseType,
+                application_command::ApplicationCommandInteraction, InteractionResponseType,
             },
             ChannelType, CommandId, Reaction, UserId,
         },
@@ -109,6 +109,12 @@ impl Handler {
                         .kind(CommandOptionType::String)
                         .required(true)
                 })
+                .create_option(|option| {
+                    option
+                        .name("message")
+                        .description("募集メッセージ")
+                        .kind(CommandOptionType::String)
+                })
         })
         .await
         .context("コマンドの登録に失敗")?;
@@ -125,6 +131,12 @@ impl Handler {
                         .kind(CommandOptionType::Channel)
                         .channel_types(&[ChannelType::Voice])
                         .required(true)
+                })
+                .create_option(|option| {
+                    option
+                        .name("message")
+                        .description("募集メッセージ")
+                        .kind(CommandOptionType::String)
                 })
         })
         .await
@@ -154,12 +166,20 @@ impl Handler {
             .context("コマンドが登録されていません")?
             .clone();
 
-        // データを取得
-        let data_option: &CommandDataOption = &interaction.data.options[0];
         // 指定されたチャンネルIDを取得
-        let channel_str: &str = match data_option.value.as_ref() {
+        let channel_str: &str = match interaction.data.options[0].value.as_ref() {
             Some(Value::String(channel)) => channel.as_str(),
             _ => return Err(anyhow!("チャンネルが指定されていません")),
+        };
+        // 指定されたチャンネルIDを取得
+        let message: String = match interaction
+            .data
+            .options
+            .get(1)
+            .and_then(|option| option.value.as_ref())
+        {
+            Some(Value::String(message)) => format!("\n\n{}", message.as_str()),
+            _ => "".to_string(),
         };
 
         // コマンドの種類を取得
@@ -229,23 +249,36 @@ impl Handler {
             .collect::<Vec<String>>()
             .join("");
 
-        // メッセージを構築
-        let vote_message = self.vote_message.format(&[
-            &interaction.user.mention().to_string(),
-            &command_type.to_string(),
-            &self.app_config.discord.move_timeout_minutes.to_string(),
-        ]);
-
         // メッセージを送信
         let message = interaction
             .channel_id
             .send_message(&ctx, |m| {
+                // メッセージを構築
+                let vote_message = self.vote_message.format(&[
+                    &interaction.user.mention().to_string(),
+                    &command_type.to_string(),
+                    &self.app_config.discord.move_timeout_minutes.to_string(),
+                ]);
+                // メッセージを設定
                 m.content(format!(
-                    "{}にいる皆さん({})へ\n\n{}",
+                    "{}にいる皆さん({})へ{}\n\n{}",
                     voice_channel_id.mention(),
                     voice_member_mentions,
+                    message,
                     vote_message,
                 ));
+                // メンション可能ロールのみに設定 (@everyone/@hereは禁止)
+                m.allowed_mentions(|a| {
+                    a.parse(ParseValue::Users);
+                    a.roles(
+                        guild
+                            .roles
+                            .values()
+                            .filter(|role| role.mentionable)
+                            .collect::<Vec<_>>(),
+                    );
+                    a
+                });
                 m
             })
             .await
