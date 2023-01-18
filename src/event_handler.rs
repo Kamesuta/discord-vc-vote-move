@@ -221,7 +221,8 @@ impl Handler {
                 // コマンドの種類を取得
                 CommandType::MoveTo(channel_id)
             }
-            _ => return Err(anyhow!("コマンドが不正です")),
+            // その他の場合は別のBotのコマンドなため、このプログラム内でAcknowledgeしてはいけない
+            _ => return Ok(()),
         };
 
         // 送信者を取得
